@@ -1,16 +1,17 @@
 # syntax=docker/dockerfile:1
 
-# Build the Spring Boot application
 FROM eclipse-temurin:17-jdk AS builder
 
 WORKDIR /app
 
 COPY . .
 
+# Fix Windows line endings and execution permission
+RUN sed -i 's/\r$//' gradlew && chmod +x gradlew
+
 RUN ./gradlew clean bootJar -x test --no-daemon
 
 
-# Run the Spring Boot application
 FROM eclipse-temurin:17-jre
 
 WORKDIR /app
