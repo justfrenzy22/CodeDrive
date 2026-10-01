@@ -44,8 +44,11 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Run tests
-        run: .\gradlew.bat test --no-daemon
+      # Build / Compile
+      - name: Gradle Assemble
+        run: .\gradlew.bat clean assemble --no-daemon --console=plain
+      - name: Run Tests
+        run: .\gradlew.bat test --no-daemon --console=plain
 
       - name: Build backend
         run: .\gradlew.bat clean bootJar --no-daemon
