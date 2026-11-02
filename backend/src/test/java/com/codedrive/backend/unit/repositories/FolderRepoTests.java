@@ -1,8 +1,10 @@
-package com.codedrive.backend.repositories;
+package com.codedrive.backend.unit.repositories;
 
 import com.codedrive.backend.domain.Folder;
 import com.codedrive.backend.exceptions.FolderPersistenceException;
 import com.codedrive.backend.exceptions.InvalidFolderException;
+import com.codedrive.backend.repositories.FolderRepo;
+import com.codedrive.backend.repositories.MongoRepo;
 import com.codedrive.backend.repositories.entities.FolderEntity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
