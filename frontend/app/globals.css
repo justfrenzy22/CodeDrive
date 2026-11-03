@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "@justfrenzy/liquid-glass/tailwind.css";
 
 :root {
   --background: #ffffff;
