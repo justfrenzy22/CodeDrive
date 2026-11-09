@@ -2,46 +2,46 @@ name: Frontend CI/CD
 
 on:
   push:
-    branches:
-      - main
-    paths:
-      - "frontend/**"
-
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
     paths:
       - "frontend/**"
+      - "backend/**"
+      - "docker-compose.yml"
+      - "docker-compose.e2e.yml"
+      - ".github/workflows/frontend-ci-cd.yml"
+
+concurrency:
+  group: frontend-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: powershell
+    working-directory: frontend
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository_owner }}/codedrive-frontend
+  FRONTEND_PORT: ${{ vars.FRONTEND_PORT || '3030' }}
+  BACKEND_PORT: ${{ vars.BACKEND_PORT || '8085' }}
 
 jobs:
-  test:
-    runs-on:
-    - self-hosted
-    - Windows
-    - X64
-
-    defaults:
-      run:
-        working-directory: frontend
-
+  build:
+    name: Build frontend
+    runs-on: [self-hosted, Windows, X64]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Show runner
-        run: |
-          Write-Host "Running on:"
-          hostname
-          whoami
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
@@ -51,27 +51,139 @@ jobs:
       - name: Lint
         run: npm run lint
 
-      - name: Build
+      - name: Build frontend
         run: npm run build
-        env:
-          NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
 
-  docker:
-    needs: test
-    if: github.event_name == 'push'
+      - name: Upload frontend build
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-build
+          include-hidden-files: true
+          path: |
+            frontend/.next/
+            !frontend/.next/cache/
+            !frontend/.next/dev/
+          if-no-files-found: error
 
-    runs-on:
-    - self-hosted
-    - Windows
-    - X64
-
-    permissions:
-      contents: read
-      packages: write
-
+  unit_tests:
+    name: Run unit tests
+    needs: build
+    runs-on: [self-hosted, Windows, X64]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm test -- --reporter=default --reporter=junit --outputFile=test-results/unit-results.xml
+
+      - name: Upload unit test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-unit-test-results
+          path: frontend/test-results/unit-results.xml
+
+  e2e_tests:
+    name: Run end-to-end tests
+    needs: unit_tests
+    runs-on: [self-hosted, Windows, X64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Chromium for Playwright
+        run: npx playwright install chromium
+
+      - name: Download frontend build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-build
+          path: frontend/.next
+
+      - name: Run folder creation E2E tests
+        run: npm run test:e2e
+
+      - name: Stop isolated test services
+        if: always()
+        run: docker compose --project-name codedrive-e2e --file ../docker-compose.e2e.yml down --volumes
+
+      - name: Upload E2E reports and failure screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-e2e-results
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+
+  docker:
+    name: Build Docker image
+    needs: e2e_tests
+    runs-on: [self-hosted, Windows, X64]
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Build Docker image
+        run: docker build --tag "codedrive-frontend:$env:GITHUB_SHA" --file frontend/Dockerfile frontend
+
+      - name: Save Docker image
+        run: docker image save --output frontend-image.tar "codedrive-frontend:$env:GITHUB_SHA"
+
+      - name: Upload Docker image
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-docker-image
+          path: frontend-image.tar
+          compression-level: 0
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    name: Publish image to GHCR
+    needs: docker
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Windows, X64]
+    permissions:
+      contents: read
+      packages: write
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Download Docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-docker-image
+
+      - name: Load Docker image
+        run: docker image load --input frontend-image.tar
 
       - name: Login to GHCR
         uses: docker/login-action@v3
@@ -80,14 +192,57 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push image
-        uses: docker/build-push-action@v7
+      - name: Tag and publish image
+        run: |
+          $image = "$env:REGISTRY/$env:IMAGE_NAME".ToLowerInvariant()
+          foreach ($tag in @("latest", $env:GITHUB_SHA)) {
+            docker tag "codedrive-frontend:$env:GITHUB_SHA" "$($image):$tag"
+            if ($LASTEXITCODE -ne 0) { throw "Failed to tag image as $tag" }
+
+            docker push "$($image):$tag"
+            if ($LASTEXITCODE -ne 0) { throw "Failed to publish image tagged $tag" }
+          }
+
+  deploy:
+    name: Deploy frontend on this machine
+    needs: publish
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, Windows, X64]
+    concurrency:
+      group: codedrive-deployment
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Select the image published for this commit
+        run: |
+          $image = "$env:REGISTRY/$env:IMAGE_NAME".ToLowerInvariant()
+          "FRONTEND_IMAGE=$($image):$env:GITHUB_SHA" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
         with:
-          context: ./frontend
-          file: ./frontend/Dockerfile
-          push: true
-          build-args: |
-            NEXT_PUBLIC_API_URL=${{ vars.NEXT_PUBLIC_API_URL }}
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pull the frontend image
+        run: docker compose --project-name codedrive --file docker-compose.yml pull frontend
+
+      # The backend workflow manages its own image and containers.
+      - name: Start or update only the frontend
+        run: docker compose --project-name codedrive --file docker-compose.yml up --detach --no-deps --no-build --wait --wait-timeout 120 frontend
+
+      - name: Show deployment status
+        run: docker compose --project-name codedrive --file docker-compose.yml ps frontend
+
+      - name: Show logs if deployment fails
+        if: failure()
+        run: docker compose --project-name codedrive --file docker-compose.yml logs --tail 100 frontend

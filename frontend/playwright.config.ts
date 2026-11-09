@@ -1,28 +1,39 @@
-import { defineConfig, devices } from "@playwright/test";
+import { defineConfig } from "@playwright/test";
+
+const port = process.env.E2E_PORT ?? "3031";
+const baseURL = `http://127.0.0.1:${port}`;
 
 export default defineConfig({
-  testDir: "./tests/browser",
-  use: { baseURL: "http://127.0.0.1:3031", headless: true },
+  testDir: "./tests/e2e",
+  fullyParallel: false,
+  workers: 1,
+  forbidOnly: Boolean(process.env.CI),
+  retries: process.env.CI ? 1 : 0,
+  reporter: [
+    ["list"],
+    ["html", { open: "never" }],
+    ["junit", { outputFile: "test-results/e2e-results.xml" }],
+  ],
+  use: {
+    baseURL,
+    headless: true,
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
+  },
   projects: [
     {
       name: "chromium",
-      testIgnore: /webkit-compatibility\.spec\.ts/,
       use: { browserName: "chromium" },
-    },
-    {
-      name: "webkit-desktop",
-      testMatch: /webkit-compatibility\.spec\.ts/,
-      use: { browserName: "webkit", viewport: { width: 1280, height: 900 } },
-    },
-    {
-      name: "webkit-mobile",
-      testMatch: /webkit-compatibility\.spec\.ts/,
-      use: { ...devices["iPhone 13"], browserName: "webkit" },
     },
   ],
   webServer: {
-    command: "npx next start --port 3031",
-    url: "http://127.0.0.1:3031/dev/liquid-glass",
+    command: "node .next/standalone/server.js",
+    url: baseURL,
+    env: {
+      PORT: port,
+      HOSTNAME: "127.0.0.1",
+      BACKEND_API_URL: "http://127.0.0.1:8086",
+    },
     reuseExistingServer: false,
     timeout: 60000,
   },

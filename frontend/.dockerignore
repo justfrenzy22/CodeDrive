@@ -8,3 +8,6 @@ npm-debug.log
 README.md
 .env
 .env.local
+playwright-report
+test-results
+coverage
