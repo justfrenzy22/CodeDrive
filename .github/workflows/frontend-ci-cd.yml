@@ -3,11 +3,14 @@ name: Frontend CI/CD
 on:
   push:
     branches: [main]
+    paths: 
+      - "frontend/**"
+      - "docker-compose.yml"
+      - ".github/workflows/frontend-ci-cd.yml"
   pull_request:
     branches: [main]
     paths:
       - "frontend/**"
-      - "backend/**"
       - "docker-compose.yml"
       - "docker-compose.e2e.yml"
       - ".github/workflows/frontend-ci-cd.yml"
