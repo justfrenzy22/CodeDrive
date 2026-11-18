@@ -83,7 +83,7 @@ jobs:
           java-version: "17"
 
       - name: Compile and package backend
-        run: .\gradlew.bat clean assemble --no-daemon --console=plain
+        run: .\gradlew.bat assemble --no-daemon --console=plain
 
       - name: Upload backend JAR
         uses: actions/upload-artifact@v4
@@ -110,7 +110,7 @@ jobs:
           java-version: "17"
 
       - name: Run unit tests
-        run: .\gradlew.bat clean test --tests "com.codedrive.backend.unit.*" --no-daemon --console=plain
+        run: .\gradlew.bat test --tests "com.codedrive.backend.unit.*" --no-daemon --console=plain
 
       - name: Upload unit test results
         if: always()
@@ -137,7 +137,7 @@ jobs:
           java-version: "17"
 
       - name: Run integration tests
-        run: .\gradlew.bat clean test --tests "com.codedrive.backend.integration.*" --no-daemon --console=plain
+        run: .\gradlew.bat test --tests "com.codedrive.backend.integration.*" --no-daemon --console=plain
 
       - name: Upload integration test results
         if: always()
