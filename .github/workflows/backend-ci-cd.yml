@@ -2,8 +2,11 @@ name: Backend CI/CD
 
 on:
   push:
-    branches:
-      - main
+    branches: ["develop", "feature/**"]
+    paths:
+      - "backend/**"
+      - "docker-compose.yml"
+      - ".github/workflows/backend-ci-cd.yml"
 
   pull_request:
     branches:
@@ -32,8 +35,42 @@ env:
   BACKEND_PORT: ${{ vars.BACKEND_PORT || '8085' }}
 
 jobs:
+  # Decides which parts of the backend changed in this push / PR.
+  changes:
+    name: Detect changed paths
+    runs-on: [self-hosted, Windows, X64]
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      source: ${{ steps.filter.outputs.source }}
+      tests: ${{ steps.filter.outputs.tests }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Filter paths
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            source:
+              - 'backend/src/main/**'
+              - 'backend/*.gradle*'
+              - 'backend/gradle/**'
+              - 'backend/gradlew*'
+              - 'backend/Dockerfile'
+              - 'docker-compose.yml'
+              - '.github/workflows/backend-ci-cd.yml'
+            tests:
+              - 'backend/src/test/**'
+              - '.github/workflows/backend-ci-cd.yml'
+
+  # Runs only when application code / build config changed.
   build:
     name: Build backend
+    needs: changes
+    if: needs.changes.outputs.source == 'true'
     runs-on: [self-hosted, Windows, X64]
     steps:
       - name: Checkout
@@ -55,9 +92,12 @@ jobs:
           path: backend/build/libs/*.jar
           if-no-files-found: error
 
+  # Runs only when tests changed. Waits for build if build also runs,
+  # and is skipped if build failed.
   unit_tests:
     name: Run unit tests
-    needs: build
+    needs: [changes, build]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.tests == 'true' }}
     runs-on: [self-hosted, Windows, X64]
     steps:
       - name: Checkout
@@ -83,7 +123,8 @@ jobs:
 
   integration_tests:
     name: Run integration tests
-    needs: unit_tests
+    needs: [changes, unit_tests]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.tests == 'true' }}
     runs-on: [self-hosted, Windows, X64]
     steps:
       - name: Checkout
@@ -107,9 +148,13 @@ jobs:
             backend/build/reports/tests/test/
             backend/build/test-results/test/
 
+  # Only builds an image when the application changed (no point re-deploying
+  # the same code after a tests-only change). Skipped tests don't block it,
+  # failed tests do.
   docker:
     name: Build Docker image
-    needs: integration_tests
+    needs: [changes, build, unit_tests, integration_tests]
+    if: ${{ !cancelled() && !failure() && needs.changes.outputs.source == 'true' }}
     runs-on: [self-hosted, Windows, X64]
     defaults:
       run:
@@ -136,7 +181,9 @@ jobs:
   publish:
     name: Publish image to GHCR
     needs: docker
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # !cancelled()/!failure() are needed because skipped jobs further up
+    # the chain would otherwise skip this job too.
+    if: ${{ !cancelled() && !failure() && needs.docker.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: [self-hosted, Windows, X64]
     permissions:
       contents: read
@@ -177,7 +224,7 @@ jobs:
   deploy:
     name: Deploy backend on this machine
     needs: publish
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: ${{ !cancelled() && !failure() && needs.publish.result == 'success' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: [self-hosted, Windows, X64]
     concurrency:
       group: codedrive-deployment

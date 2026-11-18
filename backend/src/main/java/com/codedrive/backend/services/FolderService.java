@@ -4,6 +4,9 @@ import com.codedrive.backend.domain.Folder;
 import com.codedrive.backend.exceptions.InvalidFolderException;
 import com.codedrive.backend.Interfaces.repositories.iFolderRepo;
 import com.codedrive.backend.Interfaces.services.iFolderService;
+
+import java.util.List;
+
 import org.springframework.stereotype.Service;
 
 @Service
@@ -27,5 +30,9 @@ public class FolderService implements iFolderService {
             throw new InvalidFolderException("Folder creation date is required.");
         }
         return folderRepo.save(folder);
+    }
+
+    public List<Folder> getFolders() {
+        return folderRepo.getFolders();
     }
 }

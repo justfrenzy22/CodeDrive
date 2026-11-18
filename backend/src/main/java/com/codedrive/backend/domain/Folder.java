@@ -3,13 +3,13 @@ package com.codedrive.backend.domain;
 import java.util.Date;
 
 public class Folder {
-    private final String id;
+    private final String _id;
     private final String name;
     private final String description;
     private final Date createdAt;
 
-    public Folder(String id, String name, String description, Date createdAt) {
-        this.id = id;
+    public Folder(String _id, String name, String description, Date createdAt) {
+        this._id = _id;
         this.name = name;
         this.description = description;
         this.createdAt = createdAt;
@@ -20,7 +20,7 @@ public class Folder {
     }
 
     public String getId() {
-        return id;
+        return _id;
     }
 
     public String getName() {

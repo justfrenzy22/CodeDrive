@@ -9,7 +9,7 @@ import java.util.Date;
 @Document("Folder")
 public class FolderEntity {
     @Id
-    private String id;
+    private String _id;
     private String name;
     private String description;
     private Date createdAt;
@@ -19,7 +19,7 @@ public class FolderEntity {
 
     public static FolderEntity mapFrom(Folder folder) {
         FolderEntity entity = new FolderEntity();
-        entity.id = folder.getId();
+        entity._id = folder.getId();
         entity.name = folder.getName();
         entity.description = folder.getDescription();
         entity.createdAt = folder.getCreatedAt();
@@ -27,6 +27,6 @@ public class FolderEntity {
     }
 
     public Folder mapTo() {
-        return new Folder(id, name, description, createdAt);
+        return new Folder(_id, name, description, createdAt);
     }
 }
